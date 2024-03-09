@@ -1,0 +1,231 @@
+#!/bin/sh
+source /usr/share/cpe/cpedebug
+source /usr/share/cpe/SIMCOM
+source /usr/share/cpe/Quectel
+source /usr/share/cpe/Fibocom
+
+#初值化数据结构
+InitData()
+{
+    Date=''
+	CHANNEL="-" 
+	ECIO="-"
+	RSCP="-"
+	ECIO1=" "
+	RSCP1=" "
+	NETMODE="-"
+	LBAND="-"
+	PCI="-"
+	CTEMP="-"
+	MODE="-"
+	SINR="-"
+	IMEI='-'
+	IMSI='-'
+	ICCID='-'
+	phone='-'
+	conntype=''
+	Model=''
+
+
+}
+#写数据
+SETData()
+{
+    {
+        echo $Model #'RM520N-GL'
+        echo $conntype #'conntype'
+        echo '1e0e:9001'
+        echo $COPS #运营商
+        echo 'ttyUSB2' #端口
+        echo $QTEMP #温度
+        echo 'QMI' #协议 
+        echo '---------------------------------'
+        echo $IMEI #imei
+        echo $IMSI #imsi
+        echo $ICCID #iccid
+        echo $phone #phone
+        echo '---------------------------------'
+        
+        echo $MODE
+        echo $CSQ
+        echo $CSQ_PER
+        echo $CSQ_RSSI
+        echo $ECIO #参考信号接收质量 RSRQ ecio
+        echo $ECIO1 #参考信号接收质量 RSRQ ecio1
+        echo $RSCP #参考信号接收功率 RSRP rscp0
+        echo $RSCP1 #参考信号接收功率 RSRP rscp1
+        echo $SINR #信噪比 SINR  rv["sinr"]
+        echo $NETMODE #连接状态监控 rv["netmode"]
+        echo '---------------------------------'
+
+
+        echo $COPS_MCC #MCC
+        echo $$COPS_MNC #MNC
+        echo $LAC  #eNB ID
+        echo ''  #LAC_NUM
+        echo $RNC #TAC
+        echo '' #RNC_NUM
+        echo $CID
+        echo ''  #CID_NUM
+        echo $LBAND
+        echo $CHANNEL
+        echo $PCI
+
+        echo $Date
+
+
+        
+        echo $MODTYPE
+        echo $QTEMP
+    
+    } > /tmp/cpe_cell.file
+}
+ATPORT=1
+
+# 自动处理模块信号
+AUTO_CPE()
+{
+    Debug "------------------------------端口$ATPORT---------------------------"
+	Debug "AUTO_CPE"
+	Date=$(date "+%Y-%m-%d %H:%M:%S")
+
+
+	#检测设备是否准备好
+	rec=$(sendat $ATPORT "AT" 500 |grep OK |wc -l) 
+	if [ $rec == "1" ];then
+		sleep 1s
+	else
+		sleep 5s
+		return
+	fi
+    #读取模块信息
+    # if [ "$conntype" == "" ]; then
+    # {
+    #     Debug "计算模块"
+    #     ATATI=$( sendat $ATPORT "ATI")
+    #     Getconntype=$(echo "$ATATI" | sed -n '2p')
+    #     if [ "$Getconntype" == "" ]; then
+    #     {
+    #         sleep 5s
+	# 	    return
+    #     }
+    #     fi
+    #     Model=$(echo "$ATATI" | sed -n '3p')
+    #     conntype=$Getconntype
+    # }
+    # fi
+
+    Debug "读取模块信息 计算模块"
+    ATATI=$( sendat $ATPORT "ATI")
+    Getconntype=$(echo "$ATATI" | sed -n '2p')
+    if [ "$Getconntype" == "" ]; then
+    {
+        sleep 5s
+        return
+    }
+    fi
+    Model=$(echo "$ATATI" | sed -n '3p')
+    conntype=$Getconntype
+
+    cpin=$( sendat $ATPORT "at+cpin?")
+    ERR=$(echo "$cpin" | grep "ERROR")
+	if [ ! -z "$ERR" ]; then # No SIM
+		Debug "No SIM"
+        sleep 5s
+		return
+	fi
+	RDY=$(echo "$cpin" | grep "READY")
+	if [ -z "$RDY" ]; then # SIM Locked
+		Debug "Correct Pin"
+        sleep 5s
+		return
+	else
+		Debug "Not Locked"
+	fi
+    #执行对应模块
+	if [ $(echo $conntype |grep "Quectel"| wc -l) -ge 1 ];then
+	{
+        Quectel_AT 
+    }
+	elif [ $(echo $conntype |grep "SIMCOM"| wc -l) -ge 1 ];then
+    {
+        SIMCOM_AT
+    }
+	elif [ $(echo $conntype |grep "Fibocom"| wc -l) -ge 1 ];then
+    {
+        Fibocom_AT
+    }
+    else
+    {
+        Debug "null "
+    }
+	fi
+}
+
+#检测SIM卡是否插入,10次检测不到则重启模块
+check_sim()
+{
+    while [ 1 ]
+    do
+        enabled=$(uci -q get modem.@ndis[0].enabled)
+        if [ "$enabled" == '1' ] ; then
+            echo "Check the sim"
+            rec=$(sendat 2 "AT+CPIN?")
+            rec1=$(echo $rec | grep "READY" | wc -l)
+            if [ "$rec1" == 1 ]; then
+                x=0
+                echo "SIM is READY"
+            else
+                let x++
+                if [ "$x" == 10 ]; then
+                    echo "SIM abnormal, restarting module using AT command" 
+                    sendat 2 "AT+CFUN=1,1"   # 使用 AT 命令重启模块
+                    x=0
+                fi
+            fi
+        fi
+        sleep 6s
+    done
+}
+
+# 信号任务
+chenk_Task()
+{
+    while [ 1 ]
+    do
+        enabled=$(uci -q get modem.@ndis[0].enabled)
+        if [ $enabled == '1' ] ;then
+            ATPORT
+            Debug "------------------------------开启任务---------------------------"
+            AUTO_CPE
+            SETData
+            Debug "------------------------------结束任务---------------------------"
+        fi
+        sleep 3s
+    done
+}
+
+
+
+# 运行入口
+first()
+{
+    Debug "开启RSSI服务"
+    # 初值化数据结构
+    InitData
+    Debug "初值化数据完成"
+    sleep 1s
+    # 计算模块AT端口号
+    ATPORT
+    AUTO_CPE
+    # 保存结构数据
+    SETData
+    chenk_Task
+}
+
+#############################################
+#					#
+#		进入主函数                             #
+#					#
+#############################################
+first

@@ -1,0 +1,30 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2006-2014 OpenWrt.org
+
+START=16
+STOP=16
+USE_PROCD=1
+
+runModem()
+{
+  /bin/sh /usr/share/cpe/rssi &
+}
+
+
+
+
+service_triggers()
+{
+	procd_add_reload_trigger "modem"
+}
+
+start_service() {
+	config_load modem
+	config_foreach runModem ndis
+}
+
+stop_service()
+{
+    echo "runModem stop" >> /tmp/log4g
+}
+

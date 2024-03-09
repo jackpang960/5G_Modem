@@ -1,0 +1,5 @@
+
+config ndis
+	option enabled '1'
+	option servertype '0'
+	option tyyusb '2'
